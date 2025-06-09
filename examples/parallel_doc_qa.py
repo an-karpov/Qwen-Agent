@@ -1,15 +1,25 @@
+import os
+import sys
+print(os.getcwd())
+sys.path.insert(0, os.getcwd())
 from qwen_agent.agents.doc_qa import ParallelDocQA
 from qwen_agent.gui import WebUI
 
+NGROK_URL = "https://22b2-178-57-73-146.ngrok-free.app"
 
 def test():
-    bot = ParallelDocQA(llm={'model': 'qwen2.5-72b-instruct', 'generate_cfg': {'max_retries': 10}})
+    # llm_config = {'model': 'qwen2.5-72b-instruct', 'generate_cfg': {'max_retries': 10}}
+    llm_config = {'model': 'phi-3.5-mini',
+                  'model_type':'oai',
+                  'base_url': NGROK_URL}
+
+    bot = ParallelDocQA(llm=llm_config)
     messages = [
         {
             'role': 'user',
             'content': [
                 {
-                    'text': '介绍实验方法'
+                    'text': 'О чём эта статья?'
                 },
                 {
                     'file': 'https://arxiv.org/pdf/2310.08560.pdf'
@@ -17,8 +27,8 @@ def test():
             ]
         },
     ]
-    for rsp in bot.run(messages):
-        print('bot response:', rsp)
+    *_, last = bot.run(messages)
+    print('bot response:', last)
 
 
 def app_gui():
@@ -39,5 +49,5 @@ def app_gui():
 
 
 if __name__ == '__main__':
-    # test()
-    app_gui()
+    test()
+    # app_gui()

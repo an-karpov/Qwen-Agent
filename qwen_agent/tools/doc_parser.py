@@ -146,21 +146,28 @@ class DocParser(BaseTool):
         chunk = []
         available_token = parser_page_size
         has_para = False
+        # идём по страницам в документам
         for page in doc:
             page_num = page['page_num']
+            # если лист чанка пустой или первый элемент чанка несответсвует этому номеру, добавляем в список
             if not chunk or f'[page: {str(page_num)}]' != chunk[0]:
                 chunk.append(f'[page: {str(page_num)}]')
             idx = 0
             len_para = len(page['content'])
+            # идём посимвольно по странице (?) #UPD всё таки по элементно
             while idx < len_para:
                 if not chunk:
                     chunk.append(f'[page: {str(page_num)}]')
+                # достаем объект
                 para = page['content'][idx]
+                # достаем текст или таблицу
                 txt = para.get('text', para.get('table'))
                 token = para['token']
+                # по умолчанию если меньше 500
                 if token <= available_token:
                     available_token -= token
                     chunk.append([txt, page_num])
+                    # типо мы уже добавили эту страницу?????
                     has_para = True
                     idx += 1
                 else:

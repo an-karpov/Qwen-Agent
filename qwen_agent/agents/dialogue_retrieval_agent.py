@@ -56,15 +56,17 @@ class DialogueRetrievalAgent(Assistant):
                 latent_query = f'{text[:MAX_TRUNCATED_QUERY_LENGTH]} ... {text[-MAX_TRUNCATED_QUERY_LENGTH:]}'
 
             *_, last = self._call_llm(
-                messages=[Message(role=USER, content=EXTRACT_QUERY_TEMPLATE[lang].format(ref_doc=latent_query))])
-            query = last[-1].content
+                messages=[Message(role=USER, content=EXTRACT_QUERY_TEMPLATE[lang].format(ref_doc=latent_query))],
+                stream=False
+                )
+            query = last.content
             # A little tricky: If the extracted query is different from the original query, it cannot be removed
             text = text.replace(query, '')
             content.append(text)
 
         # Save content as file: This file is related to the session and the time
         content = '\n'.join(content)
-        file_path = os.path.join(DEFAULT_WORKSPACE, f'dialogue_history_{session_id}_{datetime.datetime.now()}.txt')
+        file_path = os.path.join(DEFAULT_WORKSPACE, f'dialogue_history_{session_id}_{datetime.datetime.now().microsecond}.txt')
         save_text_to_file(file_path, content)
 
         new_content = [ContentItem(text=query), ContentItem(file=file_path)]

@@ -34,7 +34,7 @@ class MyImageGen(BaseTool):
 
 
 def init_agent_service():
-    llm_cfg = {'model': 'qwen-max'}
+    llm_cfg = {'model': 'oai'}
     system = ("According to the user's request, you first draw a picture and then automatically "
               'run code to download the picture and select an image operation from the given document '
               'to process the image')

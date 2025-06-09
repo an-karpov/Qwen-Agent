@@ -78,6 +78,7 @@ class Agent(ABC):
         # Only return dict when all input messages are dict
         if not messages:
             _return_message_type = 'message'
+        # transform all messages in Message class
         for msg in messages:
             if isinstance(msg, dict):
                 new_messages.append(Message(**msg))
@@ -90,9 +91,10 @@ class Agent(ABC):
                 kwargs['lang'] = 'zh'
             else:
                 kwargs['lang'] = 'en'
-
+        # пробегаемся по генератору сообщений
         for rsp in self._run(messages=new_messages, **kwargs):
             for i in range(len(rsp)):
+                # присваиваем имя агента каждой итерации?
                 if not rsp[i].name and self.name:
                     rsp[i].name = self.name
             if _return_message_type == 'message':
