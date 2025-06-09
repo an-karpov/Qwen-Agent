@@ -41,3 +41,5 @@ examples/docqa_multihp_agents.py
 **/workspace/*
 test/*
 tests/env.sh
+examples/data/*
+test.db

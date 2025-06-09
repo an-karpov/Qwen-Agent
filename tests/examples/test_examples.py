@@ -1,3 +1,17 @@
+# Copyright 2023 The Qwen team, Alibaba Group. All rights reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 import sys
 
@@ -17,6 +31,7 @@ from examples.llm_riddles import test as llm_riddles  # noqa
 from examples.llm_vl_mix_text import test as llm_vl_mix_text  # noqa
 from examples.multi_agent_router import test as multi_agent_router  # noqa
 from examples.qwen2vl_assistant_tooluse import test as qwen2vl_assistant_tooluse  # noqa
+from examples.qwen2vl_assistant_video import test as test_video  # noqa
 from examples.react_data_analysis import test as react_data_analysis  # noqa
 from examples.visual_storytelling import test as visual_storytelling  # noqa
 
@@ -86,3 +101,7 @@ def test_group_chat_demo():
 
 def test_qwen2vl_assistant_tooluse():
     qwen2vl_assistant_tooluse()
+
+
+def test_video_understanding():
+    test_video()

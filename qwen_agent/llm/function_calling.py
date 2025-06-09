@@ -1,3 +1,17 @@
+# Copyright 2023 The Qwen team, Alibaba Group. All rights reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import copy
 from abc import ABC
 from typing import Dict, Iterator, List, Literal, Optional, Union
@@ -10,7 +24,7 @@ class BaseFnCallModel(BaseChatModel, ABC):
 
     def __init__(self, cfg: Optional[Dict] = None):
         super().__init__(cfg)
-        fncall_prompt_type = self.generate_cfg.get('fncall_prompt_type', 'qwen')
+        fncall_prompt_type = self.generate_cfg.get('fncall_prompt_type', 'nous')
         if fncall_prompt_type == 'qwen':
             from qwen_agent.llm.fncall_prompts.qwen_fncall_prompt import FN_STOP_WORDS, QwenFnCallPrompt
             self.fncall_prompt = QwenFnCallPrompt()
@@ -21,6 +35,8 @@ class BaseFnCallModel(BaseChatModel, ABC):
             self.fncall_prompt = NousFnCallPrompt()
         else:
             raise NotImplementedError
+        if 'fncall_prompt_type' in self.generate_cfg:
+            del self.generate_cfg['fncall_prompt_type']
 
     def _preprocess_messages(
         self,
@@ -29,14 +45,14 @@ class BaseFnCallModel(BaseChatModel, ABC):
         generate_cfg: dict,
         functions: Optional[List[Dict]] = None,
     ) -> List[Message]:
-        messages = super()._preprocess_messages(messages, lang=lang, generate_cfg=generate_cfg)
+        messages = super()._preprocess_messages(messages, lang=lang, generate_cfg=generate_cfg, functions=functions)
         if (not functions) or (generate_cfg.get('function_choice', 'auto') == 'none'):
             messages = self._remove_fncall_messages(messages, lang=lang)
         else:
-            validate_num_fncall_results(
-                messages=messages,
-                support_multimodal_input=self.support_multimodal_input,
-            )
+            # validate_num_fncall_results(
+            #     messages=messages,
+            #     support_multimodal_input=self.support_multimodal_input,
+            # )
             messages = self.fncall_prompt.preprocess_fncall_messages(
                 messages=messages,
                 functions=functions,
@@ -58,6 +74,7 @@ class BaseFnCallModel(BaseChatModel, ABC):
                 messages=messages,
                 parallel_function_calls=generate_cfg.get('parallel_function_calls', False),
                 function_choice=generate_cfg.get('function_choice', 'auto'),
+                thought_in_content=generate_cfg.get('thought_in_content', False),
             )
         return messages
 
@@ -110,7 +127,7 @@ class BaseFnCallModel(BaseChatModel, ABC):
             raise NotImplementedError('Please use stream=True with delta_stream=False, because delta_stream=True'
                                       ' is not implemented for function calling due to some technical reasons.')
         generate_cfg = copy.deepcopy(generate_cfg)
-        for k in ['parallel_function_calls', 'function_choice']:
+        for k in ['parallel_function_calls', 'function_choice', 'thought_in_content']:
             if k in generate_cfg:
                 del generate_cfg[k]
         return self._continue_assistant_response(messages, generate_cfg=generate_cfg, stream=stream)

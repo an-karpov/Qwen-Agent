@@ -1,3 +1,17 @@
+# Copyright 2023 The Qwen team, Alibaba Group. All rights reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import copy
 import logging
 import os
@@ -39,6 +53,7 @@ class TextChatAtOAI(BaseFnCallModel):
                 openai.api_base = api_base
             if api_key:
                 openai.api_key = api_key
+            self._complete_create = openai.Completion.create
             self._chat_complete_create = openai.ChatCompletion.create
         else:
             api_kwargs = {}
@@ -61,6 +76,21 @@ class TextChatAtOAI(BaseFnCallModel):
                 client = openai.OpenAI(**api_kwargs)
                 return client.chat.completions.create(*args, **kwargs)
 
+            def _complete_create(*args, **kwargs):
+                # OpenAI API v1 does not allow the following args, must pass by extra_body
+                extra_params = ['top_k', 'repetition_penalty']
+                if any((k in kwargs) for k in extra_params):
+                    kwargs['extra_body'] = copy.deepcopy(kwargs.get('extra_body', {}))
+                    for k in extra_params:
+                        if k in kwargs:
+                            kwargs['extra_body'][k] = kwargs.pop(k)
+                if 'request_timeout' in kwargs:
+                    kwargs['timeout'] = kwargs.pop('request_timeout')
+
+                client = openai.OpenAI(**api_kwargs)
+                return client.completions.create(*args, **kwargs)
+
+            self._complete_create = _complete_create
             self._chat_complete_create = _chat_complete_create
 
     def _chat_stream(
@@ -74,14 +104,27 @@ class TextChatAtOAI(BaseFnCallModel):
             response = self._chat_complete_create(model=self.model, messages=messages, stream=True, **generate_cfg)
             if delta_stream:
                 for chunk in response:
-                    if chunk.choices and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
-                        yield [Message(ASSISTANT, chunk.choices[0].delta.content)]
+                    if chunk.choices:
+                        if hasattr(chunk.choices[0].delta,
+                                   'reasoning_content') and chunk.choices[0].delta.reasoning_content:
+                            yield [
+                                Message(role=ASSISTANT,
+                                        content='',
+                                        reasoning_content=chunk.choices[0].delta.reasoning_content)
+                            ]
+                        if hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
+                            yield [Message(role=ASSISTANT, content=chunk.choices[0].delta.content)]
             else:
                 full_response = ''
+                full_reasoning_content = ''
                 for chunk in response:
-                    if chunk.choices and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
-                        full_response += chunk.choices[0].delta.content
-                        yield [Message(ASSISTANT, full_response)]
+                    if chunk.choices:
+                        if hasattr(chunk.choices[0].delta,
+                                   'reasoning_content') and chunk.choices[0].delta.reasoning_content:
+                            full_reasoning_content += chunk.choices[0].delta.reasoning_content
+                        if hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
+                            full_response += chunk.choices[0].delta.content
+                        yield [Message(role=ASSISTANT, content=full_response, reasoning_content=full_reasoning_content)]
         except OpenAIError as ex:
             raise ModelServiceError(exception=ex)
 
@@ -93,13 +136,24 @@ class TextChatAtOAI(BaseFnCallModel):
         messages = self.convert_messages_to_dicts(messages)
         try:
             response = self._chat_complete_create(model=self.model, messages=messages, stream=False, **generate_cfg)
-            return [Message(ASSISTANT, response.choices[0].message.content)]
+            if hasattr(response.choices[0].message, 'reasoning_content'):
+                return [
+                    Message(role=ASSISTANT,
+                            content=response.choices[0].message.content,
+                            reasoning_content=response.choices[0].message.reasoning_content)
+                ]
+            else:
+                return [Message(role=ASSISTANT, content=response.choices[0].message.content)]
         except OpenAIError as ex:
             raise ModelServiceError(exception=ex)
 
     @staticmethod
     def convert_messages_to_dicts(messages: List[Message]) -> List[dict]:
+        # TODO: Change when the VLLM deployed model needs to pass reasoning_complete.
+        #  At this time, in order to be compatible with lower versions of vLLM,
+        #  and reasoning content is currently not useful
         messages = [msg.model_dump() for msg in messages]
+
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f'LLM Input:\n{pformat(messages, indent=2)}')
         return messages

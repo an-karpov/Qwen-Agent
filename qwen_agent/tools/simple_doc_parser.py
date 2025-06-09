@@ -1,11 +1,23 @@
+# Copyright 2023 The Qwen team, Alibaba Group. All rights reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import json
 import os
 import re
 import time
 from collections import Counter
 from typing import Dict, List, Optional, Union
-
-import json5
 
 from qwen_agent.log import logger
 from qwen_agent.settings import DEFAULT_WORKSPACE
@@ -22,6 +34,23 @@ def clean_paragraph(text):
     text = rm_hexadecimal(text)
     text = rm_continuous_placeholders(text)
     return text
+
+
+class DocParserError(Exception):
+
+    def __init__(self,
+                 exception: Optional[Exception] = None,
+                 code: Optional[str] = None,
+                 message: Optional[str] = None,
+                 extra: Optional[dict] = None):
+        if exception is not None:
+            super().__init__(exception)
+        else:
+            super().__init__(f'\nError code: {code}. Error message: {message}')
+        self.exception = exception
+        self.code = code
+        self.message = message
+        self.extra = extra
 
 
 PARAGRAPH_SPLIT_SYMBOL = '\n'
@@ -53,7 +82,12 @@ def parse_ppt(path: str, extract_image: bool = False):
         raise ValueError('Currently, extracting images is not supported!')
 
     from pptx import Presentation
-    ppt = Presentation(path)
+    from pptx.exc import PackageNotFoundError
+    try:
+        ppt = Presentation(path)
+    except PackageNotFoundError as ex:
+        logger.warning(ex)
+        return []
     doc = []
     for slide_number, slide in enumerate(ppt.slides):
         page = {'page_num': slide_number + 1, 'content': []}
@@ -100,6 +134,9 @@ def df_to_md(df) -> str:
         return replaced_text
 
     from tabulate import tabulate
+    df = df.dropna(how='all')
+    df = df.dropna(axis=1, how='all')
+    df = df.fillna('')
     md_table = tabulate(df, headers='keys', tablefmt='pipe', showindex=False)
 
     md_table = '\n'.join([
@@ -132,7 +169,12 @@ def parse_csv(file_path: str, extract_image: bool = False) -> List[dict]:
 
     import pandas as pd
     md_tables = []
-    df = pd.read_csv(file_path, encoding_errors='replace', on_bad_lines='skip')
+    try:
+        df = pd.read_csv(file_path, encoding_errors='replace', on_bad_lines='skip')
+    except Exception as ex:
+        # Directly converted from Excel
+        logger.warning(ex)
+        return parse_excel(file_path, extract_image)
     md_table = df_to_md(df)
     md_tables.append(md_table)  # There is only one table available
 
@@ -145,8 +187,12 @@ def parse_tsv(file_path: str, extract_image: bool = False) -> List[dict]:
 
     import pandas as pd
     md_tables = []
-
-    df = pd.read_csv(file_path, sep='\t', encoding_errors='replace', on_bad_lines='skip')
+    try:
+        df = pd.read_csv(file_path, sep='\t', encoding_errors='replace', on_bad_lines='skip')
+    except Exception as ex:
+        # Directly converted from Excel
+        logger.warning(ex)
+        return parse_excel(file_path, extract_image)
     md_table = df_to_md(df)
     md_tables.append(md_table)  # There is only one table available
 
@@ -197,6 +243,8 @@ def parse_pdf(pdf_path: str, extract_image: bool = False) -> List[dict]:
     from pdfminer.layout import LTImage, LTRect, LTTextContainer
 
     doc = []
+    import pdfplumber
+    pdf = pdfplumber.open(pdf_path)
     for i, page_layout in enumerate(extract_pages(pdf_path)):
         page = {'page_num': page_layout.pageid, 'content': []}
 
@@ -211,7 +259,7 @@ def parse_pdf(pdf_path: str, extract_image: bool = False) -> List[dict]:
         for element in elements:
             if isinstance(element, LTRect):
                 if not tables:
-                    tables = extract_tables(pdf_path, i)
+                    tables = extract_tables(pdf, i)
                 if table_num < len(tables):
                     table_string = table_converter(tables[table_num])
                     table_num += 1
@@ -297,9 +345,7 @@ def get_font(element):
         return []
 
 
-def extract_tables(pdf_path, page_num):
-    import pdfplumber
-    pdf = pdfplumber.open(pdf_path)
+def extract_tables(pdf, page_num):
     table_page = pdf.pages[page_num]
     tables = table_page.extract_tables()
     return tables
@@ -375,11 +421,7 @@ class SimpleDocParser(BaseTool):
         try:
             # Directly load the parsed doc
             parsed_file = self.db.get(cached_name_ori)
-            try:
-                parsed_file = json5.loads(parsed_file)
-            except ValueError:
-                logger.warning(f'Encountered ValueError raised by json5. Fall back to json. File: {cached_name_ori}')
-                parsed_file = json.loads(parsed_file)
+            parsed_file = json.loads(parsed_file)
             logger.info(f'Read parsed {path} from cache.')
         except KeyNotExistsError:
             logger.info(f'Start parsing {path}...')
@@ -399,27 +441,32 @@ class SimpleDocParser(BaseTool):
                 tmp_file_root = os.path.join(self.data_root, hash_sha256(path))
                 os.makedirs(tmp_file_root, exist_ok=True)
                 path = save_url_to_local_work_dir(path, tmp_file_root)
+            try:
+                if f_type == 'pdf':
+                    parsed_file = parse_pdf(path, self.extract_image)
+                elif f_type == 'docx':
+                    parsed_file = parse_word(path, self.extract_image)
+                elif f_type == 'pptx':
+                    parsed_file = parse_ppt(path, self.extract_image)
+                elif f_type == 'txt':
+                    parsed_file = parse_txt(path)
+                elif f_type == 'html':
+                    parsed_file = parse_html_bs(path, self.extract_image)
+                elif f_type == 'csv':
+                    parsed_file = parse_csv(path, self.extract_image)
+                elif f_type == 'tsv':
+                    parsed_file = parse_tsv(path, self.extract_image)
+                elif f_type in ['xlsx', 'xls']:
+                    parsed_file = parse_excel(path, self.extract_image)
+                else:
+                    raise ValueError(
+                        f'Failed: The current parser does not support this file type! Supported types: {"/".join(PARSER_SUPPORTED_FILE_TYPES)}'
+                    )
+            except Exception as ex:
+                exception_type = type(ex).__name__
+                exception_message = str(ex)
+                raise DocParserError(code=exception_type, message=exception_message)
 
-            if f_type == 'pdf':
-                parsed_file = parse_pdf(path, self.extract_image)
-            elif f_type == 'docx':
-                parsed_file = parse_word(path, self.extract_image)
-            elif f_type == 'pptx':
-                parsed_file = parse_ppt(path, self.extract_image)
-            elif f_type == 'txt':
-                parsed_file = parse_txt(path)
-            elif f_type == 'html':
-                parsed_file = parse_html_bs(path, self.extract_image)
-            elif f_type == 'csv':
-                parsed_file = parse_csv(path, self.extract_image)
-            elif f_type == 'tsv':
-                parsed_file = parse_tsv(path, self.extract_image)
-            elif f_type in ['xlsx', 'xls']:
-                parsed_file = parse_excel(path, self.extract_image)
-            else:
-                raise ValueError(
-                    f'Failed: The current parser does not support this file type! Supported types: {"/".join(PARSER_SUPPORTED_FILE_TYPES)}'
-                )
             for page in parsed_file:
                 for para in page['content']:
                     # Todo: More attribute types

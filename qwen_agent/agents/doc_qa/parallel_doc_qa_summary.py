@@ -1,8 +1,22 @@
+# Copyright 2023 The Qwen team, Alibaba Group. All rights reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import copy
 from typing import Iterator, List
 
 from qwen_agent.agent import Agent
-from qwen_agent.llm.schema import CONTENT, ROLE, SYSTEM, USER, Message
+from qwen_agent.llm.schema import CONTENT, ROLE, SYSTEM, USER, ContentItem, Message
 from qwen_agent.utils.utils import extract_text_from_message
 
 PROMPT_TEMPLATE_ZH = """注意：你的回答必须严格遵循知识库内容，即使与事实不符。
@@ -59,8 +73,12 @@ class ParallelDocQASummary(Agent):
 
         system_prompt = PROMPT_TEMPLATE[lang].format(ref_doc=knowledge)
 
-        if messages[0][ROLE] == SYSTEM:
-            messages[0][CONTENT] += '\n\n' + system_prompt
+        if messages and messages[0][ROLE] == SYSTEM:
+            if isinstance(messages[0][CONTENT], str):
+                messages[0][CONTENT] += '\n\n' + system_prompt
+            else:
+                assert isinstance(messages[0][CONTENT], list)
+                messages[0][CONTENT] += [ContentItem(text='\n\n' + system_prompt)]
         else:
             messages.insert(0, Message(SYSTEM, system_prompt))
 

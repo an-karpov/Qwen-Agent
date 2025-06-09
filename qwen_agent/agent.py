@@ -1,3 +1,17 @@
+# Copyright 2023 The Qwen team, Alibaba Group. All rights reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import copy
 import json
 import traceback
@@ -8,7 +22,9 @@ from qwen_agent.llm import get_chat_model
 from qwen_agent.llm.base import BaseChatModel
 from qwen_agent.llm.schema import CONTENT, DEFAULT_SYSTEM_MESSAGE, ROLE, SYSTEM, ContentItem, Message
 from qwen_agent.log import logger
-from qwen_agent.tools import TOOL_REGISTRY, BaseTool
+from qwen_agent.tools import TOOL_REGISTRY, BaseTool, MCPManager
+from qwen_agent.tools.base import ToolServiceError
+from qwen_agent.tools.simple_doc_parser import DocParserError
 from qwen_agent.utils.utils import has_chinese_messages, merge_generate_cfgs
 
 
@@ -139,15 +155,6 @@ class Agent(ABC):
         Yields:
             The response generator of LLM.
         """
-        messages = copy.deepcopy(messages)
-        if self.system_message:
-            if messages[0][ROLE] != SYSTEM:
-                messages.insert(0, Message(role=SYSTEM, content=self.system_message))
-            elif isinstance(messages[0][CONTENT], str):
-                messages[0][CONTENT] = self.system_message + '\n\n' + messages[0][CONTENT]
-            else:
-                assert isinstance(messages[0][CONTENT], list)
-                messages[0][CONTENT] = [ContentItem(text=self.system_message + '\n\n')] + messages[0][CONTENT]
         return self.llm.chat(messages=messages,
                              functions=functions,
                              stream=stream,
@@ -171,6 +178,8 @@ class Agent(ABC):
         tool = self.function_map[tool_name]
         try:
             tool_result = tool.call(tool_args, **kwargs)
+        except (ToolServiceError, DocParserError) as ex:
+            raise ex
         except Exception as ex:
             exception_type = type(ex).__name__
             exception_message = str(ex)
@@ -194,6 +203,13 @@ class Agent(ABC):
             if tool_name in self.function_map:
                 logger.warning(f'Repeatedly adding tool {tool_name}, will use the newest tool in function list')
             self.function_map[tool_name] = tool
+        elif isinstance(tool, dict) and 'mcpServers' in tool:
+            tools = MCPManager().initConfig(tool)
+            for tool in tools:
+                tool_name = tool.name
+                if tool_name in self.function_map:
+                    logger.warning(f'Repeatedly adding tool {tool_name}, will use the newest tool in function list')
+                self.function_map[tool_name] = tool
         else:
             if isinstance(tool, dict):
                 tool_name = tool['name']

@@ -1,3 +1,17 @@
+# Copyright 2023 The Qwen team, Alibaba Group. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import copy
 from typing import Dict, Iterator, List, Optional, Union
 
@@ -5,7 +19,7 @@ import json5
 
 from qwen_agent.agents import Assistant
 from qwen_agent.llm import BaseChatModel
-from qwen_agent.llm.schema import DEFAULT_SYSTEM_MESSAGE, SYSTEM, USER, Message
+from qwen_agent.llm.schema import DEFAULT_SYSTEM_MESSAGE, SYSTEM, USER, ContentItem, Message
 from qwen_agent.tools import BaseTool
 
 MEMORY_PROMPT = """
@@ -20,7 +34,7 @@ MEMORY_PROMPT = """
 {storage_info}
 </info>
 
-你的记忆很短暂，请频繁的调用工具存储重要对话内容。
+你的记忆很短暂，请频繁的调用工具存储或读取重要对话内容。
 """
 
 
@@ -41,19 +55,15 @@ class MemoAssistant(Assistant):
                          description=description,
                          files=files)
 
-    def _run(self,
-             messages: List[Message],
-             lang: str = 'en',
-             max_ref_token: int = 4000,
-             **kwargs) -> Iterator[List[Message]]:
+    def _run(self, messages: List[Message], lang: str = 'zh', knowledge: str = '', **kwargs) -> Iterator[List[Message]]:
         new_message = self._prepend_storage_info_to_sys(messages)
         new_message = self._truncate_dialogue_history(new_message)
 
-        for rsp in super()._run(new_message, lang, max_ref_token, **kwargs):
+        for rsp in super()._run(new_message, lang=lang, knowledge=knowledge, **kwargs):
             yield rsp
 
     def _prepend_storage_info_to_sys(self, messages: List[Message]) -> List[Message]:
-        new_messages = copy.deepcopy(messages)
+        messages = copy.deepcopy(messages)
         all_kv = {}
         # Obtained from message, with the purpose of facilitating control of information volume
         for msg in messages:
@@ -70,16 +80,20 @@ class MemoAssistant(Assistant):
                     pass
         all_kv_str = '\n'.join([f'{k}: {v}' for k, v in all_kv.items()])
         sys_memory_prompt = MEMORY_PROMPT.format(storage_info=all_kv_str)
-        if messages[0].role == SYSTEM:
-            new_messages[0].content += sys_memory_prompt
+        if messages and messages[0].role == SYSTEM:
+            if isinstance(messages[0].content, str):
+                messages[0].content += '\n\n' + sys_memory_prompt
+            else:
+                assert isinstance(messages[0].content, list)
+                messages[0].content += [ContentItem(text='\n\n' + sys_memory_prompt)]
         else:
-            new_messages = [Message(role=SYSTEM, content=sys_memory_prompt)] + messages
-        return new_messages
+            messages = [Message(role=SYSTEM, content=sys_memory_prompt)] + messages
+        return messages
 
     def _truncate_dialogue_history(self, messages: List[Message]) -> List[Message]:
         # This simulates a very small window, retaining only the most recent three rounds of conversation
         new_messages = []
-        available_turn = 4
+        available_turn = 400
         k = len(messages) - 1
         while k > -1:
             msg = messages[k]
@@ -90,7 +104,7 @@ class MemoAssistant(Assistant):
             new_messages = [msg] + new_messages
             k -= 1
 
-        if k > -1 and messages[0].role == SYSTEM:
+        if k > -1 and messages and messages[0].role == SYSTEM:
             new_messages = [messages[0]] + new_messages
 
         return new_messages

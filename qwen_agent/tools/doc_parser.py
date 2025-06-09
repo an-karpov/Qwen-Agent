@@ -1,10 +1,23 @@
+# Copyright 2023 The Qwen team, Alibaba Group. All rights reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import json
 import os
 import re
 import time
 from typing import Dict, List, Optional, Union
 
-import json5
 from pydantic import BaseModel
 
 from qwen_agent.log import logger
@@ -90,12 +103,7 @@ class DocParser(BaseTool):
         try:
             # Directly load the chunked doc
             record = self.db.get(cached_name_chunking)
-            try:
-                record = json5.loads(record)
-            except ValueError:
-                logger.warning(
-                    f'Encountered ValueError raised by json5. Fall back to json. File: {cached_name_chunking}')
-                record = json.loads(record)
+            record = json.loads(record)
             logger.info(f'Read chunked {url} from cache.')
             return record
         except KeyNotExistsError:
