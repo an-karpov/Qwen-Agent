@@ -109,7 +109,7 @@ class BaseChatModel(ABC):
         self,
         messages: List[Union[Message, Dict]],
         functions: Optional[List[Dict]] = None,
-        stream: bool = True,
+        stream: bool = False,
         delta_stream: bool = False,
         extra_generate_cfg: Optional[Dict] = None,
     ) -> Union[List[Message], List[Dict], Iterator[List[Message]], Iterator[List[Dict]]]:

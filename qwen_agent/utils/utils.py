@@ -331,6 +331,7 @@ def format_as_multimodal_message(
     add_audio_upload_info: bool,
     lang: Literal['auto', 'en', 'zh'] = 'auto',
 ) -> Message:
+    "transform different formats to text"
     assert msg.role in (USER, ASSISTANT, SYSTEM, FUNCTION)
     content: List[ContentItem] = []
     if isinstance(msg.content, str):  # if text content
@@ -418,6 +419,7 @@ def format_as_text_message(
     add_upload_info: bool,
     lang: Literal['auto', 'en', 'zh'] = 'auto',
 ) -> Message:
+    "transform different formats to text"
     msg = format_as_multimodal_message(msg,
                                        add_upload_info=add_upload_info,
                                        add_multimodel_upload_info=add_upload_info,
@@ -436,6 +438,7 @@ def extract_text_from_message(
     add_upload_info: bool,
     lang: Literal['auto', 'en', 'zh'] = 'auto',
 ) -> str:
+    "transform messages to text"
     if isinstance(msg.content, list):
         text = format_as_text_message(msg, add_upload_info=add_upload_info, lang=lang).content
     elif isinstance(msg.content, str):
